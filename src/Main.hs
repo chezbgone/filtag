@@ -64,12 +64,12 @@ newTags = do
   pure Map.empty
 
 help :: String
-help = "filtag - file tagging cli\n" ++
+help = "filtag - file tagging utility\n" ++
        "------\n" ++
        "filtag list [verbose]         Lists available tags\n" ++
-       "filtag find {tag}             Lists files associated with [tag]\n" ++
-       "filtag tag {file} {tags}      Add [tags] to [file]\n" ++
-       "filtag remove {file} {tags}   Add [tags] to [file]"
+       "filtag find {tag}             Lists files associated with {tag}\n" ++
+       "filtag tag {file} {tags}      Add {tags} to {file}\n" ++
+       "filtag remove {file} {tags}   Add {tags} to {file}"
 
 main :: IO ()
 main = do
