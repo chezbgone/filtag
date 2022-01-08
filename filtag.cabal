@@ -1,6 +1,6 @@
 cabal-version:      2.4
 name:               filtag
-version:            0.1.0.0
+version:            0.2.0.0
 synopsis:           file tagging cli
 
 -- A longer description of the package.
@@ -37,6 +37,7 @@ executable filtag
                     , cereal
                     , containers
                     , directory
+                    , PyF
                     , mtl
                     , time
     hs-source-dirs:   src
