@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE QuasiQuotes #-}
 module Main where
 
@@ -17,14 +16,12 @@ import PyF
 import System.Directory
 import System.Environment
 import GHC.Generics
-import System.Posix.Internals (c_dup2)
 
 type Tag = String
 type TagMap = Map Tag (Set FilePath)
 
 data MapReadError = UnreadableError | NonexistentError
-  deriving (Generic, Show)
-instance Serialize MapReadError
+  deriving (Show)
 
 -----------------------
 -- TagMap Operations --
