@@ -3,6 +3,7 @@
 module Main where
 
 import Control.Monad
+import Control.Monad.Except
 import Data.Bifunctor
 import qualified Data.ByteString as B
 import Data.Set (Set)
@@ -16,7 +17,7 @@ import PyF
 import System.Directory
 import System.Environment
 import GHC.Generics
-import Control.Monad.Except
+import System.Posix.Internals (c_dup2)
 
 type Tag = String
 type TagMap = Map Tag (Set FilePath)
@@ -24,6 +25,10 @@ type TagMap = Map Tag (Set FilePath)
 data MapReadError = UnreadableError | NonexistentError
   deriving (Generic, Show)
 instance Serialize MapReadError
+
+-----------------------
+-- TagMap Operations --
+-----------------------
 
 tagFile :: FilePath
 tagFile = ".tags"
@@ -35,13 +40,38 @@ addTags tags file tagMap = Set.foldr' upd tagMap tags
         add Nothing = Just $ Set.singleton file
         add (Just files) = Just $ Set.insert file files
 
+listTags :: TagMap -> [(Tag, Int)]
+listTags tagMap = map (second Set.size) $ Map.toList tagMap
+
+listTagsVerbose :: TagMap -> [(Tag, [FilePath])]
+listTagsVerbose tagMap = map (second Set.toList) $ Map.toList tagMap
+
+findTag :: Tag -> TagMap -> [FilePath]
+findTag tag tagMap =
+  Set.toList $ Set.unions $ maybeToList $ Map.lookup tag tagMap
+
+mapRemoveFile :: FilePath -> TagMap -> TagMap
+mapRemoveFile file = Map.mapMaybe upd
+  where upd fs = let fs' = Set.delete file fs
+                  in if Set.null fs' then Nothing else Just fs'
+
+removeTags :: FilePath -> [Tag] -> TagMap -> TagMap
+removeTags file tags = Map.mapMaybeWithKey upd
+  where upd t fs
+          | t `elem` tags = let fs' = Set.delete file fs
+                             in if Set.null fs' then Nothing else Just fs'
+          | otherwise     = Just fs
+
+---------------
+-- TagMap IO --
+---------------
+
 readTags :: ExceptT MapReadError IO TagMap
 readTags = do
   exists <- lift $ doesFileExist tagFile
-  if exists then do
-    bs <- lift $ B.readFile tagFile
-    liftEither $ first (const UnreadableError) $ decode bs
-  else throwError NonexistentError
+  unless exists $ throwError NonexistentError
+  bs <- lift $ B.readFile tagFile
+  liftEither $ first (const UnreadableError) $ decode bs
 
 writeTags :: TagMap -> IO ()
 writeTags tm = do
@@ -63,13 +93,58 @@ newTags = do
   putStrLn [fmt|Creating new {tagFile} file|]
   pure Map.empty
 
-help :: String
-help = "filtag - file tagging utility\n" ++
-       "------\n" ++
-       "filtag list [verbose]         Lists available tags\n" ++
-       "filtag find {tag}             Lists files associated with {tag}\n" ++
-       "filtag tag {file} {tags}      Add {tags} to {file}\n" ++
-       "filtag remove {file} {tags}   Add {tags} to {file}"
+
+--------------------
+-- Script Actions --
+--------------------
+
+type MapAction = IO (Maybe TagMap)
+
+doAddTags :: [Tag] -> FilePath -> TagMap -> MapAction
+doAddTags ts f tm = pure $ Just $ addTags (Set.fromList ts) f tm
+
+doListTags :: TagMap -> MapAction
+doListTags tm = do
+  mapM_ (putStrLn . \(t, n) -> [fmt|{t} ({n})|]) (listTags tm)
+  pure Nothing
+
+doListTagsVerbose :: TagMap -> MapAction
+doListTagsVerbose tm = do
+  forM_ (listTagsVerbose tm) $ \(tag, fs) -> do
+    putStrLn [fmt|{tag} |]
+    forM_ fs $ \file ->
+      putStrLn [fmt|  {file}|]
+  pure Nothing
+
+doFindTag :: Tag -> TagMap -> MapAction
+doFindTag tag tm = do
+  mapM_ putStrLn $ findTag tag tm
+  pure Nothing
+
+doRemoveFile :: FilePath -> TagMap -> MapAction
+doRemoveFile f tm = pure $ Just $ mapRemoveFile f tm
+
+doRemoveTags :: FilePath -> [Tag] -> TagMap -> MapAction
+doRemoveTags f ts tm = pure $ Just $ removeTags f ts tm
+
+doPrintHelp :: MapAction
+doPrintHelp = putStrLn help >> pure Nothing
+  where
+    help = "filtag - file tagging utility\n" ++
+           "------\n" ++
+           "filtag list [verbose]         Lists available tags\n" ++
+           "filtag find {tag}             Lists files associated with {tag}\n" ++
+           "filtag tag {file} {tags}      Add {tags} to {file}\n" ++
+           "filtag remove {file} {tags}   Add {tags} to {file}"
+
+doUnsupported :: [String] -> MapAction
+doUnsupported args = do
+  putStrLn [fmt|unrecognized command "{unwords args}"|]
+  pure Nothing
+
+----------
+-- Main --
+----------
 
 main :: IO ()
 main = do
@@ -80,42 +155,13 @@ main = do
     Left NonexistentError -> pure Map.empty
     Right tm              -> pure tm
   tagMap' <- case args of
-    "tag" : file : tags -> do
-      pure $ Just $ addTags (Set.fromList tags) file tagMap
-    ["list"] -> do
-      let tags = map (second Set.size) $ Map.toList tagMap
-      mapM_ (putStrLn . \(t, n) -> [fmt|{t} ({n})|]) tags
-      pure Nothing
-    ["find", tag] -> do
-      case Map.lookup tag tagMap of
-        Nothing     -> pure ()
-        Just files' -> mapM_ putStrLn files'
-      pure Nothing
-    ["remove", file] -> do
-      pure $ Just $ Map.mapMaybe upd tagMap
-        where upd fs = let fs' = Set.delete file fs
-                       in if Set.null fs' then Nothing else Just fs'
-    "remove" : file : tags -> do
-      pure $ Just $ Map.mapMaybeWithKey upd tagMap
-        where upd t fs
-                | t `elem` tags = let fs' = Set.delete file fs
-                    in if Set.null fs' then Nothing else Just fs'
-                | otherwise     = Just fs
-    ["list", "verbose"] -> do
-      forM_ (Map.toList tagMap) $ \(tag, fs) -> do
-        putStrLn [fmt|{tag} |]
-        forM_ (Set.toList fs) $ \file ->
-          putStrLn [fmt|  {file}|]
-      pure Nothing
-    [] -> do
-      putStrLn help
-      pure Nothing
-    ["help"] -> do
-      putStrLn help
-      pure Nothing
-    args' -> do
-      putStrLn [fmt|unrecognized command "{unwords args}"|]
-      pure Nothing
-  case tagMap' of
-    Just tm -> writeTags tm
-    Nothing -> pure ()
+    "tag" : file : tags    -> doAddTags tags file tagMap
+    ["list"]               -> doListTags tagMap
+    ["list", "verbose"]    -> doListTagsVerbose tagMap
+    ["find", tag]          -> doFindTag tag tagMap
+    ["remove", file]       -> doRemoveFile file tagMap
+    "remove" : file : tags -> doRemoveTags file tags tagMap
+    []                     -> doPrintHelp
+    ["help"]               -> doPrintHelp
+    _                  -> doUnsupported args
+  mapM_ writeTags tagMap'
