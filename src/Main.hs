@@ -1,3 +1,7 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE QuasiQuotes #-}
 module Main where
 
@@ -16,8 +20,17 @@ import PyF
 import System.Directory
 import System.Environment
 import GHC.Generics
+import Data.Coerce
 
-type Tag = String
+newtype Tag = Tag String
+  deriving (Eq, Ord, Generic)
+
+instance Serialize Tag
+
+type instance PyFClassify Tag = 'PyFString
+instance PyFToString Tag where
+  pyfToString = coerce
+
 type TagMap = Map Tag (Set FilePath)
 
 data MapReadError = UnreadableError | NonexistentError
@@ -152,13 +165,13 @@ main = do
     Left NonexistentError -> pure Map.empty
     Right tm              -> pure tm
   tagMap' <- case args of
-    "tag" : file : tags    -> doAddTags tags file tagMap
+    "tag" : file : tags    -> doAddTags (coerce tags) file tagMap
     ["list"]               -> doListTags tagMap
     ["list", "verbose"]    -> doListTagsVerbose tagMap
-    ["find", tag]          -> doFindTag tag tagMap
+    ["find", tag]          -> doFindTag (coerce tag) tagMap
     ["remove", file]       -> doRemoveFile file tagMap
-    "remove" : file : tags -> doRemoveTags file tags tagMap
+    "remove" : file : tags -> doRemoveTags file (coerce tags) tagMap
     []                     -> doPrintHelp
     ["help"]               -> doPrintHelp
-    _                  -> doUnsupported args
+    _                      -> doUnsupported args
   mapM_ writeTags tagMap'
