@@ -1,5 +1,9 @@
+<div align="center">
+
 # filtag
 Small file-tagging utility for easy searching and filtering in the future.
+
+</div>
 
 ## Installation
 Install to `.cabal/bin` with
