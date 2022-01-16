@@ -60,6 +60,9 @@ findTag :: Tag -> TagMap -> [FilePath]
 findTag tag tagMap =
   Set.toList $ Set.unions $ maybeToList $ Map.lookup tag tagMap
 
+ofTag :: FilePath -> TagMap -> [Tag]
+ofTag file tagMap = Map.keys $ Map.filter (Set.member file) tagMap
+
 mapRemoveFile :: FilePath -> TagMap -> TagMap
 mapRemoveFile file = Map.mapMaybe upd
   where upd fs = let fs' = Set.delete file fs
@@ -131,6 +134,11 @@ doFindTag tag tm = do
   mapM_ putStrLn $ findTag tag tm
   pure Nothing
 
+doOfTag :: FilePath -> TagMap -> MapAction
+doOfTag f tm = do
+  mapM_ (putStrLn . coerce) (ofTag f tm)
+  pure Nothing
+
 doRemoveFile :: FilePath -> TagMap -> MapAction
 doRemoveFile f tm = pure $ Just $ mapRemoveFile f tm
 
@@ -142,10 +150,12 @@ doPrintHelp = putStrLn help >> pure Nothing
   where
     help = "filtag - file tagging utility\n" ++
            "------\n" ++
+           "filtag tag {file} {tags}      Add {tags} to {file}\n" ++
            "filtag list [verbose]         Lists available tags\n" ++
            "filtag find {tag}             Lists files associated with {tag}\n" ++
-           "filtag tag {file} {tags}      Add {tags} to {file}\n" ++
-           "filtag remove {file} {tags}   Add {tags} to {file}"
+           "filtag of {file}              Lists tags associated with {file}\n" ++
+           "filtag remove {file}          Remove {file} and associated tags\n" ++
+           "filtag remove {file} {tags}   Remove {tags} from {file}"
 
 doUnsupported :: [String] -> MapAction
 doUnsupported args = do
@@ -169,6 +179,7 @@ main = do
     ["list"]               -> doListTags tagMap
     ["list", "verbose"]    -> doListTagsVerbose tagMap
     ["find", tag]          -> doFindTag (coerce tag) tagMap
+    ["of", file]           -> doOfTag file tagMap
     ["remove", file]       -> doRemoveFile file tagMap
     "remove" : file : tags -> doRemoveTags file (coerce tags) tagMap
     []                     -> doPrintHelp
